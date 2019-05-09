@@ -340,8 +340,8 @@ class CycleGan:
 
 if __name__ == '__main__':
     gan = CycleGan((64, 64, 3))
-    gan.train(epochs=1, batch_size=1, batches=20, prefix='0')
-    for i in range(99999):
+    #gan.train(epochs=1, batch_size=1, batches=20, prefix='0')
+    for i in range(23, 99999):
         clear_session()
         tf.reset_default_graph()
         print("Starting stage %d" % i)
