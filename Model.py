@@ -3,7 +3,7 @@ import glob
 import numpy as np
 from tensorflow.keras.layers import Input, Dense, Reshape, Flatten, Dropout, Concatenate
 from tensorflow.keras.layers import BatchNormalization, Activation, ZeroPadding2D
-from tensorflow.keras.layers import LeakyReLU
+from tensorflow.keras.layers import LeakyReLU, Add
 from tensorflow.keras.layers import UpSampling2D, Conv2D
 from tensorflow.keras.models import Sequential, Model
 from tensorflow.keras.layers import Lambda
@@ -239,11 +239,26 @@ class CycleGan:
             x = InstanceNormalization()(x)
             return x
 
-        def deConv(inputs, skip, filters, size=4):
+        def id(inputs, filters, size=4):
+            inputs_save = inputs
+            x = Conv2D(filters, kernel_size=1, strides=1, padding='valid')(inputs)
+            x = BatchNormalization(axis=3)(x)
+            x = Activation('relu')(x)
+
+            x = Conv2D(filters, kernel_size=size, strides=1, padding='same')(x)
+            x = BatchNormalization(axis=3)(x)
+            x = Activation('relu')(x)
+
+            x = Conv2D(filters, kernel_size=1, strides=1, padding='valid')(x)
+            x = BatchNormalization(axis=3)(x)
+            x = Add()([x, inputs_save])
+
+            return Activation('relu')(x)
+
+        def deConv(inputs, filters, size=5):
             x = UpSampling2D(size=2)(inputs)
             x = Conv2D(filters, kernel_size=size, strides=1, padding='same', activation='relu')(x)
             x = (InstanceNormalization())(x)
-            x = Concatenate()([x, skip])
             return x
 
         inputs = Input(shape=self.shape)
@@ -253,9 +268,14 @@ class CycleGan:
         x3 = conv(x2, self.g_filters * 4)
         x4 = conv(x3, self.g_filters * 8)
 
-        y1 = deConv(x4, x3, self.g_filters*4)
-        y2 = deConv(y1, x2, self.g_filters*2)
-        y3 = deConv(y2, x1, self.g_filters)
+        z1 = id(x4, self.g_filters*8, size=5)
+        z2 = id(z1, self.g_filters * 8, size=5)
+        z3 = id(z2, self.g_filters * 8, size=5)
+        z4 = id(z3, self.g_filters * 8, size=5)
+
+        y1 = deConv(z4, self.g_filters*4)
+        y2 = deConv(y1, self.g_filters*2)
+        y3 = deConv(y2, self.g_filters)
         y4 = UpSampling2D(size=2)(y3)
         outIm = Conv2D(3, kernel_size=4, strides=1, padding='same', activation='tanh')(y4)
 
@@ -285,8 +305,8 @@ class CycleGan:
 
         start_time = datetime.datetime.now()
 
-        real = np.ones((batch_size,) + self.disc_patch)
-        fake = np.zeros((batch_size,) + self.disc_patch)
+        fake = np.ones((batch_size,) + self.disc_patch)
+        real = np.zeros((batch_size,) + self.disc_patch)
 
         print(real.shape)
         imageSet = ImageDataLoader(batch_size, res=(self.shape[0], self.shape[1]))
@@ -331,21 +351,22 @@ class CycleGan:
                        np.mean(g_loss[3:5]),
                        np.mean(g_loss[5:6]),
                        elapsed_time))
+            if batch_i % 30 == 0:
+                self.d_X.save(prefix + "dx.h5")
+                self.d_Y.save(prefix + "dy.h5")
+                self.g_XY.save(prefix + "gy.h5")
+                self.g_YX.save(prefix + "gx.h5")
 
-        self.d_X.save(prefix + "dx.h5")
-        self.d_Y.save(prefix + "dy.h5")
-        self.g_XY.save(prefix + "gy.h5")
-        self.g_YX.save(prefix + "gx.h5")
 
 
 if __name__ == '__main__':
     gan = CycleGan((64, 64, 3))
-    #gan.train(epochs=1, batch_size=1, batches=20, prefix='0')
-    for i in range(23, 99999):
+    gan.train(epochs=1, batch_size=5, batches=10000, prefix='0')
+    for i in range(99999):
         clear_session()
         tf.reset_default_graph()
         print("Starting stage %d" % i)
         gan = CycleGan((64, 64, 3), load=True, prefix="%d" % (i))
-        gan.train(epochs=1, batch_size=1, batches=40,  prefix="%d" % (i+1))
+        gan.train(epochs=1, batch_size=5, batches=30,  prefix="%d" % (i+1))
 
 
